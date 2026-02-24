@@ -1,41 +1,38 @@
 # SPECIFICATION.md
 
----
-
 ## Project Overview and Purpose
 
-This project implements a **multi-agent orchestration system** for a retail pharmacy chain, supporting order fulfillment, customer support, and domain-specific reasoning across inventory, logistics, pharmacy, clinic, and supplier operations. The system leverages a swarm of specialized AI agents, each with domain-specific tools and guardrails, to process customer orders, answer questions, and coordinate fulfillment across the supply chain.
+This project implements a multi-agent orchestration platform for a retail pharmacy chain, supporting order fulfillment, inventory management, pharmacy compliance, logistics tracking, and customer service via a REST API. The system simulates real-world pharmacy operations, including HIPAA-compliant access to sensitive health data, safe conversational AI for customer interactions, and robust guardrails for data privacy, safety, and regulatory compliance.
 
-The primary goals are:
-- **Automated, safe, and explainable order fulfillment** for retail pharmacy customers.
-- **Domain-aware conversational support** for customers (e.g., order status, health reminders, inventory).
-- **End-to-end traceability** and auditability of pipeline decisions via structured logs.
+The platform is designed to:
+- Automate and coordinate order processing across inventory, pharmacy, logistics, and clinic systems.
+- Provide a safe, helpful, and compliant conversational interface for customers.
+- Ensure all agent actions are auditable, secure, and adhere to healthcare and retail industry standards.
 
 ---
 
 ## Functional Requirements
 
-| ID     | Requirement Description                                                                                       |
-|--------|--------------------------------------------------------------------------------------------------------------|
-| FR-001 | Accept customer orders via REST API, including multiple SKUs and quantities.                                 |
-| FR-002 | Check local store inventory for requested items and reserve stock if available.                              |
-| FR-003 | If items are out of stock, check inbound shipments and provide ETA details.                                  |
-| FR-004 | If store and inbound are insufficient, check distribution center (DC) stock and allocate replenishment.      |
-| FR-005 | If DC stock is low, check supplier pipeline and create restock orders as needed.                             |
-| FR-006 | For each order, check customer pharmacy profile for active prescriptions, refills, and interaction warnings. |
-| FR-007 | Surface pharmacist alerts and require pharmacist review if drug interactions are detected.                   |
-| FR-008 | Integrate in-store clinic data: appointments, immunizations, and wellness recommendations.                   |
-| FR-009 | Provide customers with order status, fulfillment plan, and relevant health reminders.                        |
-| FR-010 | Support customer chat sessions for order follow-up and Q&A.                                                  |
-| FR-011 | Log all pipeline runs with agent-level details for audit and traceability.                                   |
-| FR-012 | Enforce domain-specific safety guardrails (e.g., no medical advice, privacy).                               |
-| FR-013 | Provide REST API endpoints for order placement, order status, chat, and health checks.                      |
+| ID   | Requirement                                                                                       |
+|------|---------------------------------------------------------------------------------------------------|
+| FR1  | Accept customer orders via REST API and process them through the multi-agent pipeline.            |
+| FR2  | Check and reserve store inventory for ordered items.                                              |
+| FR3  | Query distribution centers for stock and allocate replenishments as needed.                       |
+| FR4  | Manage supplier relationships and create restock orders when DC stock is low.                     |
+| FR5  | Track inbound logistics shipments and provide ETAs for out-of-stock items.                        |
+| FR6  | Retrieve and summarize customer pharmacy data (prescriptions, refills, alerts) with HIPAA guardrails. |
+| FR7  | Retrieve and summarize customer clinic data (appointments, wellness recommendations) with audit logging. |
+| FR8  | Provide a customer-facing chat interface with strict safety, privacy, and escalation guardrails.  |
+| FR9  | Enforce authentication, authorization, and PHI redaction for all sensitive data access.           |
+| FR10 | Log all agent actions and data access for audit and compliance.                                   |
+| FR11 | Provide APIs for order status, chat history, and agent pipeline logs.                             |
+| FR12 | Support smoke/integration tests for end-to-end pipeline validation.                               |
 
 ---
 
 ## Data Models and Schemas
 
-### Order Models
+### Order Models (`models.py`)
 
 ```python
 class OrderItem(BaseModel):
@@ -46,11 +43,7 @@ class OrderRequest(BaseModel):
     customer_id: str
     store_id: str
     items: list[OrderItem]
-```
 
-### Chat Models
-
-```python
 class ChatMessage(BaseModel):
     customer_id: str
     message: str
@@ -60,89 +53,32 @@ class ChatStartRequest(BaseModel):
     order_id: str
 ```
 
-### Inventory Model (Store-level)
-
+#### Example: OrderRequest
 ```json
 {
-  "sku": "SKU-1001",
+  "customer_id": "CUST-2001",
   "store_id": "store-101",
-  "name": "Ibuprofen 200mg 100ct",
-  "in_stock": true,
-  "on_hand": 24,
-  "aisle": "Pharmacy-A3",
-  "price": 8.99,
-  "needs_reorder": false
-}
-```
-
-### Distribution Center Inventory
-
-```json
-{
-  "dc_id": "DC-EAST-01",
-  "sku": "SKU-1001",
-  "name": "Ibuprofen 200mg 100ct",
-  "on_hand": 2400,
-  "allocated": 200,
-  "available": 2200,
-  "needs_reorder": false
-}
-```
-
-### Inbound Shipment
-
-```json
-{
-  "shipment_id": "SHIP-5001",
-  "destination_store": "store-101",
-  "origin": "DC-EAST-01",
-  "carrier": "FedEx Freight",
-  "status": "in_transit",
-  "eta": "2024-06-18T12:00:00Z",
   "items": [
-    {"sku": "SKU-1002", "qty": 60, "name": "Vitamin D3 2000IU 90ct"}
+    {"sku": "SKU-1001", "qty": 1},
+    {"sku": "SKU-1002", "qty": 2}
   ]
 }
 ```
 
-### Supplier/Purchase Order
+### Inventory/Distribution/Provider Data
 
-```json
-{
-  "po_id": "PO-8001",
-  "supplier_id": "SUP-002",
-  "sku": "SKU-1002",
-  "qty": 500,
-  "status": "confirmed",
-  "ordered_at": "2024-06-10T14:00:00Z",
-  "expected_delivery": "2024-06-20T14:00:00Z",
-  "destination_dc": "DC-EAST-01"
-}
-```
+- **Store Inventory:** `{store_id: {sku: {on_hand, reserved, aisle, ...}}}`
+- **Distribution Center:** `{dc_id: {sku: {on_hand, allocated, reorder_point, ...}}}`
+- **Suppliers:** `{supplier_id: {name, skus, lead_time_days, min_order_qty, reliability_score, ...}}`
+- **Pending Purchase Orders:** `[{"po_id", "supplier_id", "sku", "qty", ...}]`
 
-### Pharmacy Profile
+### Pharmacy/Clinic/Customer Data
 
-```json
-{
-  "rx_id": "RX-3001",
-  "medication": "Lisinopril 10mg",
-  "status": "active",
-  "refills_remaining": 3,
-  "next_refill_due": "2024-06-20T00:00:00Z"
-}
-```
-
-### Clinic Data
-
-```json
-{
-  "appt_id": "APPT-4001",
-  "type": "Annual Flu Shot",
-  "scheduled_at": "2024-06-18T10:00:00Z",
-  "status": "confirmed",
-  "location": "store-101 Clinic Room A"
-}
-```
+- **Prescriptions:** `{customer_id: [rx_dict, ...]}`
+- **Pharmacist Alerts:** `{customer_id: [alert_dict, ...]}`
+- **Appointments:** `{customer_id: [appt_dict, ...]}`
+- **Immunization Records:** `{customer_id: [record_dict, ...]}`
+- **Wellness Recommendations:** `{customer_id: [rec_dict, ...]}`
 
 ---
 
@@ -151,64 +87,64 @@ class ChatStartRequest(BaseModel):
 ### Health Check
 
 - **GET /health**
-  - **Response**: `{ "status": "ok" }`
+  - **Response:** `{"status": "ok"}`
 
-### Place Order
+### Orders
 
 - **POST /orders**
-  - **Request Body**: `OrderRequest`
-  - **Response**: 
+  - **Request:** `OrderRequest`
+  - **Response:** 
     ```json
     {
-      "order_id": "ORD-202406170001",
+      "order_id": "ORD-...",
       "can_fulfill": true,
       "customer_message": "...",
       "pharmacy_flags": [...],
       "clinic_reminders": [...],
-      "execution_timing": {...},
-      "pipeline_log": [...],
-      "items_requested": [...]
+      "execution_timing": {...}
     }
     ```
-  - **Status**: `202 Accepted`
-
-### Get Order Status
+  - **Status:** `202 Accepted`
 
 - **GET /orders/{order_id}**
-  - **Response**: Full pipeline log and final decision for the order.
+  - **Response:** 
+    ```json
+    {
+      "order_id": "...",
+      "status": "...",
+      "pipeline_log": [...],
+      "final_decision": {...}
+    }
+    ```
 
-### Start Customer Chat
+### Chat
 
 - **POST /chat/start**
-  - **Request Body**: `ChatStartRequest`
-  - **Response**:
+  - **Request:** `ChatStartRequest`
+  - **Response:** 
     ```json
     {
-      "greeting": "Welcome back, Maria! Your order ORD-202406170001 is being prepared...",
-      "order_id": "ORD-202406170001"
+      "greeting": "Welcome, ...",
+      "context_summary": "..."
     }
     ```
-
-### Send Chat Message
 
 - **POST /chat/message**
-  - **Request Body**: `ChatMessage`
-  - **Response**:
+  - **Request:** `ChatMessage`
+  - **Response:** 
     ```json
     {
-      "response": "Vitamin D3 is expected to arrive in 2 days. Ibuprofen may interact with your Lisinopril prescription..."
+      "response": "..."
     }
     ```
 
-### Get Chat History
-
 - **GET /chat/{customer_id}/history**
-  - **Response**:
+  - **Response:** 
     ```json
     {
       "messages": [
-        {"role": "customer", "message": "..."},
-        {"role": "agent", "message": "..."}
+        {"role": "user", "content": "..."},
+        {"role": "assistant", "content": "..."}
       ]
     }
     ```
@@ -217,64 +153,79 @@ class ChatStartRequest(BaseModel):
 
 ## Agent Behaviors and Responsibilities
 
-| Agent Name                | Responsibilities                                                                                                   |
-|---------------------------|-------------------------------------------------------------------------------------------------------------------|
-| **StoreInventoryAgent**   | Check/reserve store stock, report aisle, flag reorder needs.                                                      |
-| **LogisticsAgent**        | Track inbound shipments, report ETAs, carrier/status, and quantities.                                             |
-| **DistributionCenterAgent** | Check DC stock, allocate replenishment, flag DC reorder needs.                                                  |
-| **ProviderAgent**         | Manage supplier relationships, check pending purchase orders, create restock orders.                              |
-| **PharmacyAgent**         | Check prescriptions, refills, drug interactions, pharmacist alerts; flag for pharmacist review if needed.         |
-| **ClinicAgent**           | Surface clinic appointments, immunization history, wellness recommendations; enforce medical guardrails.           |
-| **CustomerHistoryAgent**  | Retrieve customer profile, order history, frequently purchased items, and allergy flags for personalization.       |
+| Agent                  | Responsibilities                                                                                                   |
+|------------------------|--------------------------------------------------------------------------------------------------------------------|
+| CustomerAgent          | Conversational interface for customers. Applies guardrails for safety, privacy, and escalation.                    |
+| InventoryAgent         | Checks/reserves store inventory. Reports stock, aisle, reorder needs.                                              |
+| DistributionAgent      | Checks DC stock, allocates replenishments, flags reorder needs at DC level.                                        |
+| ProviderAgent          | Manages supplier relationships, checks pending POs, creates restock orders.                                        |
+| LogisticsAgent         | Tracks inbound shipments, provides ETAs, shipment details, and status.                                             |
+| PharmacyAgent          | Retrieves prescriptions, refills, alerts, and checks drug interactions. Enforces HIPAA guardrails and redaction.   |
+| ClinicAgent            | Retrieves appointments, immunizations, wellness recommendations. Logs all access for audit.                        |
+| HistoryAgent           | Looks up customer profile, order history, frequently purchased items. Enforces HIPAA guardrails and redaction.     |
+| Orchestrator           | Coordinates agent pipeline for order fulfillment and chat context assembly.                                         |
 
 ---
 
 ## Guardrails and Safety Rules
 
-| Domain        | Guardrail / Rule                                                                                      |
-|---------------|------------------------------------------------------------------------------------------------------|
-| Clinic        | Never diagnose or provide medical advice; recommendations are informational only.                     |
-| Clinic        | Appointment details only to authenticated customers.                                                  |
-| Clinic        | For health concerns, direct to clinic provider.                                                       |
-| Pharmacy      | Never provide medical advice or dosage recommendations.                                               |
-| Pharmacy      | Always recommend consulting pharmacist for interactions.                                              |
-| Pharmacy      | Flag high-severity alerts; require pharmacist review for interactions.                               |
-| Customer Data | Never share raw customer data externally; only summarize insights.                                    |
-| All           | Only operate within assigned domain; do not speculate outside data/tools.                             |
-| All           | Log all actions and tool calls for auditability.                                                      |
+### General Guardrails
+
+- **No Medical Advice:** Never diagnose, recommend dosages, or suggest treatments. Always escalate to a pharmacist for such queries.
+- **PHI Protection:** All access to protected health information (PHI) requires authentication, role-based authorization, and PHI redaction in responses/logs.
+- **Data Privacy:** Never share raw customer data (address, phone, email, full history) in chat. Summarize only.
+- **Stock/Price Accuracy:** Only quote confirmed inventory and prices. Never guess.
+- **Escalation:** Escalate complex, sensitive, or frustrated customer situations to a human associate.
+- **Audit Logging:** All access to sensitive data (pharmacy, clinic, customer history) is logged for compliance.
+
+### Agent-Specific Guardrails
+
+- **PharmacyAgent:** Enforces HIPAA, PHI redaction, and minimum necessary disclosure. No prescription info to unauthenticated users.
+- **CustomerAgent:** Applies strict conversational guardrails (see `GUARDRAILS` in code) for safety, privacy, and regulatory compliance.
+- **HistoryAgent/ClinicAgent:** Redact PHI for unauthorized requests. Log all access.
+- **All Agents:** Never speculate about data not checked. Respond with factual, structured data.
 
 ---
 
 ## Acceptance Criteria
 
-| ID     | Acceptance Criteria                                                                                  |
-|--------|-----------------------------------------------------------------------------------------------------|
-| AC-001 | Orders with all items in stock at store are fulfilled and reserved, with confirmation message.       |
-| AC-002 | Orders with out-of-stock items provide ETA from inbound shipments or DC replenishment.               |
-| AC-003 | If DC and inbound are insufficient, system creates supplier restock order and notifies customer.     |
-| AC-004 | Drug interactions are detected and flagged; customer is advised to consult pharmacist.              |
-| AC-005 | Clinic reminders and wellness recommendations are surfaced in order summary and chat.                |
-| AC-006 | All agent actions, tool calls, and pipeline decisions are logged per run.                            |
-| AC-007 | REST API endpoints respond with correct status codes and data schemas.                               |
-| AC-008 | Customer chat supports order follow-up and Q&A, with agent responses grounded in pipeline data.      |
-| AC-009 | Guardrails are enforced: no medical advice, privacy, and domain boundaries are respected.            |
-| AC-010 | Smoke test passes: end-to-end order, chat, and status flows are exercised successfully.              |
+| ID   | Criteria                                                                                                       |
+|------|---------------------------------------------------------------------------------------------------------------|
+| AC1  | Orders submitted via API are processed through all relevant agents, with each agent performing its role.       |
+| AC2  | InventoryAgent accurately reports and reserves stock, failing gracefully if out of stock.                      |
+| AC3  | DistributionAgent allocates from DCs and flags reorder needs if thresholds are crossed.                       |
+| AC4  | ProviderAgent creates restock orders with correct supplier, lead time, and min order qty.                     |
+| AC5  | LogisticsAgent provides accurate ETAs and shipment details for inbound stock.                                  |
+| AC6  | PharmacyAgent enforces authentication, role checks, and PHI redaction; flags drug interactions correctly.      |
+| AC7  | ClinicAgent logs all access and provides accurate appointment/wellness info.                                   |
+| AC8  | CustomerAgent never violates guardrails (no medical advice, no PHI leaks, proper escalation, etc.).           |
+| AC9  | All sensitive data access is logged and auditable.                                                             |
+| AC10 | All API endpoints return correct status codes, schemas, and error messages as specified.                       |
+| AC11 | End-to-end smoke tests pass, demonstrating the full order and chat pipeline.                                   |
 
 ---
 
-## Appendix: Example Pipeline Flow
+## Appendix: Example Agent Pipeline (Order Processing)
 
-1. **Customer places order** → `/orders`  
-2. **StoreInventoryAgent** checks/reserves stock  
-3. If out of stock, **LogisticsAgent** checks inbound shipments  
-4. If still insufficient, **DistributionCenterAgent** checks/allocates DC stock  
-5. If DC low, **ProviderAgent** checks supplier pipeline/creates restock  
-6. **PharmacyAgent** checks prescriptions, refills, interactions, and flags alerts  
-7. **ClinicAgent** surfaces appointments, immunizations, wellness recommendations  
-8. **CustomerHistoryAgent** provides personalization context  
-9. **Orchestrator** synthesizes fulfillment plan and customer message  
-10. **RunLogger** saves full pipeline log for traceability  
-11. **Customer can follow up via chat** (`/chat/start`, `/chat/message`)  
+1. **Order Received:** Orchestrator receives `OrderRequest`.
+2. **InventoryAgent:** Checks/reserves store stock for each item.
+3. **DistributionAgent:** If out of stock, checks DCs and allocates replenishment.
+4. **ProviderAgent:** If DC stock is low, creates restock PO with supplier.
+5. **LogisticsAgent:** Checks inbound shipments for ETAs on out-of-stock items.
+6. **PharmacyAgent:** Checks prescriptions, refills, drug interactions, and alerts (with HIPAA guardrails).
+7. **ClinicAgent:** Retrieves upcoming appointments and wellness recommendations (with audit logging).
+8. **HistoryAgent:** Summarizes customer profile and purchasing patterns (with PHI redaction as needed).
+9. **CustomerAgent:** Assembles a safe, personalized message for the customer, applying all conversational guardrails.
+10. **Response:** API returns order status, customer message, and pipeline log.
+
+---
+
+## References
+
+- [ARCHITECTURE.md](ARCHITECTURE.md)
+- [DESIGN.md](DESIGN.md)
+- [README.md](README.md)
+- [smoke_test.py](smoke_test.py) for end-to-end test scenarios
 
 ---
 

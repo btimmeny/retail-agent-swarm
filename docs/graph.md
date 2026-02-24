@@ -1,279 +1,205 @@
 # System Relationship Graphs
 
-This document provides a comprehensive set of Mermaid diagrams visualizing the relationships, data flow, agent orchestration, parallelism, and API request handling for the retail pharmacy agent system.
+This document provides a comprehensive set of Mermaid diagrams to visualize the architecture and flow of the repository. The diagrams cover component dependencies, data flow, agent interactions, parallel execution, and API request flow.
 
 ---
 
 ## 1. Component Dependency Graph
 
-This graph shows which modules import or depend on which others, focusing on the main agent and data modules.
+This graph shows which modules import or depend on which others. Only the main business logic files and their direct dependencies are shown for clarity.
 
 ```mermaid
 graph TD
-  %% Agents
-  A1[agents/base.py]
-  A2[agents/clinic_agent.py]
-  A3[agents/customer_agent.py]
-  A4[agents/distribution_agent.py]
-  A5[agents/history_agent.py]
-  A6[agents/inventory_agent.py]
-  A7[agents/logistics_agent.py]
-  A8[agents/pharmacy_agent.py]
-  A9[agents/provider_agent.py]
-  AO[agents/orchestrator.py]
+    app.py --> agents/orchestrator.py
+    app.py --> models.py
+    app.py --> agents/customer_agent.py
+    app.py --> agents/clinic_agent.py
+    app.py --> agents/pharmacy_agent.py
+    app.py --> agents/history_agent.py
+    app.py --> agents/inventory_agent.py
+    app.py --> agents/distribution_agent.py
+    app.py --> agents/logistics_agent.py
+    app.py --> agents/provider_agent.py
 
-  %% Data
-  D1[data/clinic.py]
-  D2[data/customer_history.py]
-  D3[data/distribution_center.py]
-  D4[data/logistics.py]
-  D5[data/pharmacy.py]
-  D6[data/provider.py]
-  D7[data/store_inventory.py]
+    agents/orchestrator.py --> agents/base.py
+    agents/orchestrator.py --> agents/customer_agent.py
+    agents/orchestrator.py --> agents/clinic_agent.py
+    agents/orchestrator.py --> agents/pharmacy_agent.py
+    agents/orchestrator.py --> agents/history_agent.py
+    agents/orchestrator.py --> agents/inventory_agent.py
+    agents/orchestrator.py --> agents/distribution_agent.py
+    agents/orchestrator.py --> agents/logistics_agent.py
+    agents/orchestrator.py --> agents/provider_agent.py
 
-  %% Models and Utility
-  M1[models.py]
-  RL[run_logger.py]
-  AP[app.py]
+    agents/clinic_agent.py --> agents/base.py
+    agents/clinic_agent.py --> data/clinic.py
 
-  %% Imports
-  A2 --> A1
-  A2 --> D1
-  A3 --> A1
-  A4 --> A1
-  A4 --> D3
-  A5 --> A1
-  A5 --> D2
-  A6 --> A1
-  A6 --> D7
-  A7 --> A1
-  A7 --> D4
-  A8 --> A1
-  A8 --> D5
-  A9 --> A1
-  A9 --> D6
+    agents/pharmacy_agent.py --> agents/base.py
+    agents/pharmacy_agent.py --> data/pharmacy.py
+    agents/pharmacy_agent.py --> utils/auth.py
+    agents/pharmacy_agent.py --> utils/phi.py
 
-  AO --> A2
-  AO --> A4
-  AO --> A5
-  AO --> A6
-  AO --> A7
-  AO --> A8
-  AO --> A9
+    agents/history_agent.py --> agents/base.py
+    agents/history_agent.py --> data/customer_history.py
 
-  AP --> AO
-  AP --> M1
-  AP --> RL
+    agents/inventory_agent.py --> agents/base.py
+    agents/inventory_agent.py --> data/store_inventory.py
 
-  RL --> AO
+    agents/distribution_agent.py --> agents/base.py
+    agents/distribution_agent.py --> data/distribution_center.py
 
-  %% Data modules may cross-reference each other (not shown for brevity)
+    agents/logistics_agent.py --> agents/base.py
+    agents/logistics_agent.py --> data/logistics.py
+
+    agents/provider_agent.py --> agents/base.py
+    agents/provider_agent.py --> data/provider.py
+
+    app.py --> data/clinic.py
+    app.py --> data/pharmacy.py
+    app.py --> data/customer_history.py
+    app.py --> data/store_inventory.py
+    app.py --> data/distribution_center.py
+    app.py --> data/logistics.py
+    app.py --> data/provider.py
 ```
 
 **Explanation:**  
-- Each agent imports the `base.py` agent class and its relevant data module.
-- The orchestrator imports all agents.
-- The API (`app.py`) imports the orchestrator, models, and logger.
-- Data modules are standalone per domain.
+- The `app.py` file is the entrypoint and orchestrates requests to all agents and data modules.
+- Each agent depends on its respective data module and the base agent class.
+- The orchestrator coordinates all agents.
 
 ---
 
 ## 2. Data Flow Diagram
 
-This diagram shows how data (e.g., order requests, customer info, inventory, etc.) moves through the system from API entry to fulfillment.
+This diagram shows how data moves through the system when processing an order or a customer chat.
 
 ```mermaid
 flowchart TD
-  User([User / API Client])
-  API[app.py (FastAPI)]
-  Orchestrator[agents/orchestrator.py]
-  Agents{{Domain Agents}}
-  AgentClinic[Clinic Agent]
-  AgentHistory[History Agent]
-  AgentInventory[Inventory Agent]
-  AgentLogistics[Logistics Agent]
-  AgentDistribution[Distribution Agent]
-  AgentProvider[Provider Agent]
-  AgentPharmacy[Pharmacy Agent]
-  DataClinic[data/clinic.py]
-  DataHistory[data/customer_history.py]
-  DataInventory[data/store_inventory.py]
-  DataLogistics[data/logistics.py]
-  DataDistribution[data/distribution_center.py]
-  DataProvider[data/provider.py]
-  DataPharmacy[data/pharmacy.py]
-  Logger[run_logger.py]
-  Models[models.py]
-
-  User -->|HTTP POST /orders| API
-  API -->|OrderRequest| Orchestrator
-  Orchestrator -->|Delegates| Agents
-  Agents --> AgentClinic
-  Agents --> AgentHistory
-  Agents --> AgentInventory
-  Agents --> AgentLogistics
-  Agents --> AgentDistribution
-  Agents --> AgentProvider
-  Agents --> AgentPharmacy
-
-  AgentClinic --> DataClinic
-  AgentHistory --> DataHistory
-  AgentInventory --> DataInventory
-  AgentLogistics --> DataLogistics
-  AgentDistribution --> DataDistribution
-  AgentProvider --> DataProvider
-  AgentPharmacy --> DataPharmacy
-
-  Orchestrator -->|Pipeline result| Logger
-  Logger -->|Log file| (runs/)
-
-  API --> Models
-  Models -.-> API
+    Customer-->|API Request|App[app.py]
+    App-->|Order Data|Orchestrator[orchestrator.py]
+    Orchestrator-->|Profile|HistoryAgent
+    Orchestrator-->|Inventory|InventoryAgent
+    Orchestrator-->|Distribution|DistributionAgent
+    Orchestrator-->|Logistics|LogisticsAgent
+    Orchestrator-->|Pharmacy|PharmacyAgent
+    Orchestrator-->|Clinic|ClinicAgent
+    Orchestrator-->|Provider|ProviderAgent
+    HistoryAgent-->|Customer Profile|CustomerHistoryDB[data/customer_history.py]
+    InventoryAgent-->|Store Stock|StoreInventory[data/store_inventory.py]
+    DistributionAgent-->|DC Stock|DistributionCenter[data/distribution_center.py]
+    LogisticsAgent-->|Shipments|Logistics[data/logistics.py]
+    PharmacyAgent-->|Prescriptions|Pharmacy[data/pharmacy.py]
+    ClinicAgent-->|Appointments|Clinic[data/clinic.py]
+    ProviderAgent-->|Suppliers|Provider[data/provider.py]
+    Orchestrator-->|Context|CustomerAgent
+    CustomerAgent-->|Chat|Customer
 ```
 
 **Explanation:**  
-- The user sends an order to the API.
-- The API parses and validates the request, then passes it to the orchestrator.
-- The orchestrator coordinates the domain agents in a pipeline.
-- Each agent queries its respective data module.
-- Results are aggregated, logged, and returned to the user.
+- The orchestrator queries each agent for its domain data.
+- Each agent fetches from its data module.
+- The orchestrator aggregates context and passes it to the customer-facing agent.
+- The customer agent interacts with the customer via chat.
 
 ---
 
 ## 3. Agent Interaction Sequence Diagram
 
-This sequence diagram illustrates how the orchestrator coordinates the agents for an order, including context passing and tool calls.
+This sequence diagram illustrates the order and pattern of agent interactions during a typical order placement.
 
 ```mermaid
 sequenceDiagram
-  participant User as User/API
-  participant API as app.py
-  participant Orchestrator as Orchestrator
-  participant History as HistoryAgent
-  participant Clinic as ClinicAgent
-  participant Pharmacy as PharmacyAgent
-  participant Inventory as InventoryAgent
-  participant Logistics as LogisticsAgent
-  participant Distribution as DistributionAgent
-  participant Provider as ProviderAgent
+    participant Customer
+    participant API as app.py
+    participant Orchestrator
+    participant History as HistoryAgent
+    participant Inventory as InventoryAgent
+    participant Distribution as DistributionAgent
+    participant Logistics as LogisticsAgent
+    participant Pharmacy as PharmacyAgent
+    participant Clinic as ClinicAgent
+    participant Provider as ProviderAgent
+    participant CustomerAgent
 
-  User->>API: POST /orders (OrderRequest)
-  API->>Orchestrator: process_order(request)
-  Orchestrator->>History: run(user_message, context)
-  History-->>Orchestrator: customer profile, order history
-  Orchestrator->>Clinic: run(user_message, context)
-  Clinic-->>Orchestrator: appointments, immunizations, recommendations
-  Orchestrator->>Pharmacy: run(user_message, context)
-  Pharmacy-->>Orchestrator: prescriptions, alerts, interactions
-  par Inventory/Logistics/Distribution
-    Orchestrator->>Inventory: run(user_message, context)
-    Inventory-->>Orchestrator: stock status, reservations
-
-    Orchestrator->>Logistics: run(user_message, context)
-    Logistics-->>Orchestrator: inbound shipments, ETAs
-
-    Orchestrator->>Distribution: run(user_message, context)
-    Distribution-->>Orchestrator: DC stock, allocations
-  end
-  Orchestrator->>Provider: run(user_message, context)
-  Provider-->>Orchestrator: supplier info, restock orders
-
-  Orchestrator->>API: pipeline result (can_fulfill, flags, messages)
-  API->>User: Response (OrderResult)
+    Customer->>API: POST /orders
+    API->>Orchestrator: process_order(order)
+    Orchestrator->>History: get_customer_profile
+    Orchestrator->>Inventory: check_store_stock
+    Orchestrator->>Distribution: check_dc_stock
+    Orchestrator->>Logistics: check_inbound_shipments
+    Orchestrator->>Pharmacy: check_prescriptions_and_alerts
+    Orchestrator->>Clinic: get_clinic_context
+    Orchestrator->>Provider: check_supplier_status
+    Orchestrator->>CustomerAgent: provide_context_and_flags
+    CustomerAgent->>Customer: Send order summary & flags
 ```
 
 **Explanation:**  
-- The orchestrator runs agents in a specific order, passing context between them.
-- Inventory, logistics, and distribution may run in parallel.
-- Provider agent runs after DC/Logistics.
-- Results are synthesized and returned.
+- The orchestrator coordinates agent calls in parallel or sequence as needed.
+- Each agent returns its result, which is aggregated for the customer agent.
 
 ---
 
 ## 4. Parallel Execution Flow Diagram
 
-This diagram shows which agents can execute in parallel and how the pipeline is structured for concurrency.
+This diagram shows which agent calls can be executed in parallel during an order pipeline.
 
 ```mermaid
-flowchart LR
-  Start([Start Order Pipeline])
-  History[History Agent]
-  Clinic[Clinic Agent]
-  Pharmacy[Pharmacy Agent]
-  ParallelFork{{Parallel}}
-  Inventory[Inventory Agent]
-  Logistics[Logistics Agent]
-  Distribution[Distribution Agent]
-  ParallelJoin{{Join}}
-  Provider[Provider Agent]
-  End([Synthesize & Respond])
-
-  Start --> History
-  History --> Clinic
-  Clinic --> Pharmacy
-  Pharmacy --> ParallelFork
-  ParallelFork --> Inventory
-  ParallelFork --> Logistics
-  ParallelFork --> Distribution
-  Inventory --> ParallelJoin
-  Logistics --> ParallelJoin
-  Distribution --> ParallelJoin
-  ParallelJoin --> Provider
-  Provider --> End
+flowchart TD
+    subgraph Parallel Phase 1
+        A1[HistoryAgent]
+        A2[InventoryAgent]
+        A3[DistributionAgent]
+        A4[LogisticsAgent]
+        A5[PharmacyAgent]
+        A6[ClinicAgent]
+        A7[ProviderAgent]
+    end
+    Parallel Phase 1 --> Aggregator[Orchestrator aggregates context]
+    Aggregator --> CustomerAgent
 ```
 
 **Explanation:**  
-- After initial context agents (history, clinic, pharmacy), the pipeline fans out to inventory, logistics, and distribution in parallel.
-- Results are joined and passed to the provider agent.
-- The pipeline then synthesizes the final response.
+- All domain agents can be invoked in parallel for efficiency.
+- The orchestrator waits for all to complete, aggregates results, and passes them to the customer agent.
 
 ---
 
 ## 5. API Request Flow Diagram
 
-This diagram details the REST API endpoints and their flow through the system.
+This diagram shows the flow of a typical API request (e.g., order placement) through the system.
 
 ```mermaid
-flowchart TD
-  subgraph API Layer
-    A1[POST /orders]
-    A2[GET /orders/{order_id}]
-    A3[POST /chat/start]
-    A4[POST /chat/message]
-    A5[GET /chat/{customer_id}/history]
-    A6[GET /health]
-  end
-
-  A1 -->|OrderRequest| Orchestrator
-  Orchestrator -->|OrderResult| A1
-  A2 -->|Fetch pipeline log| Orchestrator
-  Orchestrator -->|OrderResult| A2
-  A3 -->|ChatStartRequest| Orchestrator
-  Orchestrator -->|Greeting| A3
-  A4 -->|ChatMessage| Orchestrator
-  Orchestrator -->|ChatResponse| A4
-  A5 -->|Get chat log| Orchestrator
-  Orchestrator -->|ChatHistory| A5
-  A6 -->|Health check| (OK)
-
-  Orchestrator -->|Log| Logger
-  Logger -->|Log files| (runs/)
+flowchart LR
+    Client[Customer (API Client)]
+    Client-->|POST /orders|API[app.py (FastAPI)]
+    API-->|Validate & Parse|Models[models.py]
+    API-->|Delegate|Orchestrator[orchestrator.py]
+    Orchestrator-->|Parallel Calls|Agents[All Domain Agents]
+    Agents-->|Fetch Data|DataModules[Data Modules]
+    DataModules-->|Results|Agents
+    Agents-->|Context|Orchestrator
+    Orchestrator-->|Aggregate|CustomerAgent
+    CustomerAgent-->|Generate Response|Orchestrator
+    Orchestrator-->|Compose API Response|API
+    API-->|Return JSON|Client
 ```
 
 **Explanation:**  
-- `/orders` endpoints handle order placement and retrieval.
-- `/chat` endpoints manage customer chat sessions.
-- All business logic routes through the orchestrator, which logs runs.
-- `/health` is a simple status endpoint.
+- The API endpoint receives the request, validates input, and delegates to the orchestrator.
+- The orchestrator coordinates agent calls, which fetch from data modules.
+- The customer agent generates the final customer-facing message.
+- The orchestrator composes the full response and returns it to the client.
 
 ---
 
 # Summary
 
-- **Component dependency**: Agents depend on their data modules and the base agent class; orchestrator coordinates all.
-- **Data flow**: API → Orchestrator → Agents → Data modules → Logger → API response.
-- **Agent sequence**: Context agents first, then parallel stock agents, then provider, then synthesis.
-- **Parallelism**: Inventory, logistics, and distribution agents run concurrently.
-- **API**: RESTful endpoints for orders and chat, all routed through orchestrator logic.
+- **Component Dependency Graph:** Shows module import relationships.
+- **Data Flow Diagram:** Illustrates how data moves through agents and data modules.
+- **Agent Interaction Sequence Diagram:** Depicts the order of agent invocations for an order.
+- **Parallel Execution Flow:** Highlights which agents run in parallel.
+- **API Request Flow:** Shows the end-to-end path of an API request.
 
-These diagrams provide a holistic view of the system's structure and runtime behavior.
+These diagrams collectively provide a clear architectural overview of the system's structure and runtime behavior.
