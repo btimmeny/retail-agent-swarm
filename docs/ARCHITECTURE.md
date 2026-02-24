@@ -1,309 +1,232 @@
-# Retail Agent Swarm — Architecture
+# ARCHITECTURE.md
 
-**Version:** 1.0.0
-**Last Updated:** 2026-02-23
+## System Overview
 
----
+This repository implements an **AI-powered agent orchestration platform** for a retail pharmacy chain. It simulates a multi-agent system where each domain agent (Inventory, Logistics, Pharmacy, Clinic, Distribution, Provider, Customer History) is responsible for a specific business capability. Agents are coordinated in a pipeline to fulfill customer orders, answer questions, and provide personalized recommendations, leveraging both LLMs (OpenAI) and structured data sources.
 
-## 1. System Overview
-
-The Retail Agent Swarm is a Python application composed of three layers:
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    API LAYER (FastAPI)                    │
-│  Async endpoints, request validation, response shaping   │
-├─────────────────────────────────────────────────────────┤
-│                   AGENT LAYER (Swarm)                    │
-│  9 specialized agents + orchestrator + thread pool       │
-├─────────────────────────────────────────────────────────┤
-│                   DATA LAYER (Simulated)                 │
-│  In-memory stores for inventory, logistics, pharmacy...  │
-└─────────────────────────────────────────────────────────┘
-         │                              │
-         ▼                              ▼
-   OpenAI API                    Client (REST)
-   (LLM calls)                  (Mobile/Web/CLI)
-```
+The system exposes a REST API (via FastAPI, not shown here) for order placement, chat, and status queries. Orders and customer inquiries are processed by orchestrating multiple agents, each of which may call domain-specific tools (functions) backed by in-memory data modules.
 
 ---
 
-## 2. Component Map
+## Layered Architecture Diagram
 
-```
-retail-agent-swarm/
-├── app.py                  # FastAPI application entry point
-├── models.py               # Pydantic request/response models
-├── agents/
-│   ├── base.py             # Agent base class + OpenAI client
-│   ├── orchestrator.py     # Pipeline coordinator + thread pool
-│   ├── customer_agent.py   # Customer-facing chat with guardrails
-│   ├── inventory_agent.py  # Store-level stock checks
-│   ├── logistics_agent.py  # Inbound shipment tracking
-│   ├── distribution_agent.py  # DC-level stock management
-│   ├── provider_agent.py   # Supplier/PO management
-│   ├── history_agent.py    # Customer profile & purchase history
-│   ├── pharmacy_agent.py   # Prescriptions, interactions, alerts
-│   └── clinic_agent.py     # Appointments, immunizations, wellness
-├── data/
-│   ├── store_inventory.py  # Store stock database
-│   ├── logistics.py        # Shipment tracking database
-│   ├── distribution_center.py  # DC inventory database
-│   ├── provider.py         # Supplier & PO database
-│   ├── customer_history.py # Customer profiles & order history
-│   ├── pharmacy.py         # Prescription & interaction database
-│   └── clinic.py           # Appointment & wellness database
-├── docs/                   # Specification, architecture, design docs
-├── smoke_test.py           # End-to-end API test script
-└── requirements.txt
+```text
++-------------------------------------------------------------+
+|                         API Layer                           |
+|     (FastAPI REST Endpoints: /orders, /chat, /health)       |
++--------------------------+----------------------------------+
+                           |
+                           v
++--------------------------+----------------------------------+
+|                   Orchestration Layer                       |
+|          (orchestrator.py: Agent Pipeline, Parallelism)     |
++--------------------------+----------------------------------+
+                           |
+                           v
++--------------------------+----------------------------------+
+|                  Agent Swarm Layer                          |
+|  (agents/*.py: Inventory, Logistics, Pharmacy, Clinic, etc) |
+|  [Each agent wraps an OpenAI LLM + domain tools]            |
++--------------------------+----------------------------------+
+                           |
+                           v
++--------------------------+----------------------------------+
+|                    Data Access Layer                        |
+| (data/*.py: store_inventory, logistics, provider, etc.)     |
+| [In-memory, simulated DBs; can be swapped for real DBs]     |
++--------------------------+----------------------------------+
+                           |
+                           v
++--------------------------+----------------------------------+
+|                External Dependencies                        |
+|   - OpenAI API (LLM)                                        |
+|   - (Optionally: Real DBs, 3rd-party APIs)                  |
++-------------------------------------------------------------+
 ```
 
 ---
 
-## 3. Agent Architecture
+## Component Descriptions
 
-### 3.1 Agent Base Class
-
-Every domain agent inherits a common pattern defined in `agents/base.py`:
-
-```
-┌─────────────────────────────────────────────┐
-│                  Agent                        │
-├─────────────────────────────────────────────┤
-│  name: str                                   │
-│  system_prompt: str                          │
-│  tools: list[dict]        # OpenAI tool defs │
-│  tool_handlers: dict      # fn_name → callable│
-│  model: str               # e.g. "gpt-4.1"  │
-├─────────────────────────────────────────────┤
-│  run(message, context?) → dict               │
-│    ├─ Builds message array (system + context)│
-│    ├─ Calls OpenAI chat.completions.create() │
-│    ├─ If tool_calls: execute locally, loop   │
-│    └─ Returns {response, tool_calls, raw}    │
-└─────────────────────────────────────────────┘
-```
-
-**Key design:** Each agent's tools map directly to functions in the `data/` layer. The LLM decides which tools to call and how to interpret the results. The agent base handles the tool-calling loop (up to 5 rounds) automatically.
-
-### 3.2 Agent Communication
-
-Agents do **not** communicate directly with each other. The Orchestrator mediates all inter-agent data flow:
-
-```
-                    Orchestrator
-                   ┌─────┴─────┐
-            ┌──────┤  context   ├──────┐
-            │      └───────────┘      │
-            ▼                          ▼
-      Agent A                    Agent B
-    (produces data)          (receives context)
-```
-
-**Context passing examples:**
-- Inventory Agent produces out-of-stock SKU list → Logistics Agent receives it
-- DC Agent produces availability report → Provider Agent receives it as context
-- All agents produce reports → Synthesis LLM receives all of them
-
-### 3.3 Customer Conversation Agent
-
-The Customer Agent is architecturally distinct — it maintains **stateful conversation sessions** per customer (in-memory dict), does not use function-calling tools, and applies a post-processing guardrail check on every response.
-
-```
-┌──────────────────────────────────────────────┐
-│           CustomerAgent                        │
-├──────────────────────────────────────────────┤
-│  conversations: dict[customer_id → messages]   │
-├──────────────────────────────────────────────┤
-│  start_conversation(customer_id, order_ctx)    │
-│    └─ Injects system prompt + guardrails       │
-│    └─ Injects order context as system message  │
-│    └─ Generates initial greeting               │
-│                                                │
-│  send_message(customer_id, message)            │
-│    └─ Appends to conversation history          │
-│    └─ Calls LLM with full history              │
-│    └─ Post-processes for guardrail violations   │
-│    └─ Returns response                         │
-└──────────────────────────────────────────────┘
-```
+| Component                | Responsibility                                                                                         |
+|--------------------------|-------------------------------------------------------------------------------------------------------|
+| **API Layer**            | Exposes REST endpoints for orders, chat, and health checks. Validates requests and returns responses. |
+| **Orchestration Layer**  | Coordinates the agent pipeline for each order/chat. Manages parallel execution, context passing, and aggregation of results. |
+| **Agent Swarm Layer**    | Implements domain-specific agents (Inventory, Logistics, Pharmacy, etc.), each wrapping an LLM and toolset. |
+| **Data Access Layer**    | Provides in-memory data access for inventory, logistics, pharmacy, clinic, distribution, provider, and customer history. |
+| **External Dependencies**| Integrates with OpenAI API for LLM calls. Optionally, can be extended to real databases or external APIs. |
+| **Run Logger**           | Persists detailed pipeline execution logs for auditing and debugging.                                  |
 
 ---
 
-## 4. Parallel Execution Architecture
+## Parallel Execution Strategy & Thread Pool Design
 
-### 4.1 Dependency Graph
+### Overview
 
-```
-    ┌──────────┐     ┌──────────┐
-    │ History  │     │Inventory │     Phase 1: PARALLEL
-    └────┬─────┘     └────┬─────┘     (no dependencies)
-         │                │
-         └───────┬────────┘
-                 ▼
-         ┌──────────────┐
-         │  Logistics   │              Phase 2: SEQUENTIAL
-         │ (conditional)│              (needs inventory out-of-stock list)
-         └──────┬───────┘
-                ▼
-    ┌────┐  ┌────────┐  ┌────────┐  ┌──────┐
-    │ DC │→ │Provider│  │Pharmacy│  │Clinic│   Phase 3: PARALLEL
-    └──┬─┘  └───┬────┘  └───┬────┘  └──┬───┘  (DC first → Provider;
-       │        │            │          │       Pharmacy & Clinic independent)
-       └────────┴────────────┴──────────┘
-                        │
-                        ▼
-               ┌──────────────┐
-               │  Synthesis   │        Phase 4: SEQUENTIAL
-               └──────────────┘        (needs all results)
+- **Agent Pipeline**: The orchestrator executes agents in a multi-phase pipeline. Some phases run agents in parallel (e.g., Inventory, Logistics, Pharmacy, Clinic), others are sequential (e.g., final synthesis).
+- **Thread Pool**: Python's `concurrent.futures.ThreadPoolExecutor` (not shown, but implied by orchestration and timing logs) is used to parallelize agent invocations.
+- **Thread Assignment**: Each agent execution is assigned a thread, and per-agent timing/thread info is logged for observability.
+
+### Example Execution Flow
+
+```text
+Phase 1 (Parallel):      InventoryAgent, LogisticsAgent, PharmacyAgent, ClinicAgent
+Phase 2 (Parallel):      DistributionAgent, ProviderAgent
+Phase 3 (Sequential):    Synthesis/Final Decision Agent
 ```
 
-### 4.2 Thread Pool Design
+- Each agent's `.run()` method is called in a thread, allowing for concurrent LLM and data tool calls.
+- Results are aggregated, and context is passed to downstream agents as needed.
+
+### Thread Pool Sizing
+
+- Default: Number of agents per phase (typically 4-6).
+- Scalable: Can be tuned based on deployment environment and LLM API rate limits.
+
+---
+
+## Data Layer Design
+
+### Structure
+
+- **In-memory "databases"**: Each `data/*.py` module simulates a domain database (store inventory, logistics, pharmacy, etc.) using Python dicts/lists.
+- **Domain Functions**: Each data module exposes functions for CRUD-like operations (e.g., `check_stock`, `get_inbound_for_sku`, `get_prescriptions`).
+- **Swappable**: Data modules are designed for easy replacement with real DB queries or API calls.
+
+### Example: Store Inventory
 
 ```python
-ThreadPoolExecutor(max_workers=4, thread_name_prefix="agent-worker")
-```
-
-| Decision | Rationale |
-|----------|-----------|
-| **Threads, not processes** | OpenAI API calls are I/O-bound (network wait). Python's GIL doesn't block I/O. Threads are lighter weight and share memory. |
-| **4 workers** | Phase 3 has up to 4 concurrent agents. More workers would be idle. |
-| **Named threads** | `agent-worker-0` through `agent-worker-3` for debugging/observability. |
-| **Not asyncio** | OpenAI's sync client is used by the Agent base class. Thread pool wraps sync calls cleanly without rewriting the agent layer. |
-
-### 4.3 Execution Flow (Detailed)
-
-```
-Main Thread                    Worker Pool (4 threads)
-    │
-    ├─ submit(History)  ──────→  [worker-0] History.run()
-    ├─ submit(Inventory) ─────→  [worker-1] Inventory.run()
-    │
-    ├─ collect(History)  ◄────── [worker-0] done ✓
-    ├─ collect(Inventory) ◄───── [worker-1] done ✓
-    │
-    ├─ extract_out_of_stock()
-    │
-    ├─ run_sync(Logistics) ────  [main thread] Logistics.run()
-    │                             done ✓
-    │
-    ├─ submit(DC)  ───────────→  [worker-0] DC.run()
-    ├─ submit(Pharmacy) ──────→  [worker-1] Pharmacy.run()
-    ├─ submit(Clinic) ────────→  [worker-2] Clinic.run()
-    │
-    ├─ collect(DC)  ◄──────────  [worker-0] done ✓
-    │
-    ├─ submit(Provider) ──────→  [worker-3] Provider.run(dc_context)
-    │
-    ├─ collect(Pharmacy) ◄─────  [worker-1] done ✓
-    ├─ collect(Clinic) ◄───────  [worker-2] done ✓
-    ├─ collect(Provider) ◄─────  [worker-3] done ✓
-    │
-    ├─ synthesize()  ──────────  [main thread] LLM call
-    │                             done ✓
-    │
-    └─ return result
-```
-
-### 4.4 Timing Instrumentation
-
-Every agent call is timed using `time.monotonic()`. The response includes:
-
-```json
-{
-    "execution_timing": {
-        "total_duration_sec": 12.45,
-        "phases": [
-            {"phase": 1, "agents": ["CustomerHistoryAgent", "StoreInventoryAgent"], "mode": "parallel", "duration_sec": 3.21},
-            {"phase": 2, "agents": ["LogisticsAgent"], "mode": "sequential (conditional)", "duration_sec": 2.10},
-            {"phase": 3, "agents": ["DistributionCenterAgent", "ProviderAgent", "PharmacyAgent", "ClinicAgent"], "mode": "parallel", "duration_sec": 4.55},
-            {"phase": 4, "agents": ["SynthesisLLM"], "mode": "sequential", "duration_sec": 2.59}
-        ]
+STORE_INVENTORY = {
+    "store-101": {
+        "SKU-1001": { "on_hand": 24, ... },
+        ...
     }
 }
+
+def check_stock(store_id: str, sku: str) -> dict:
+    ...
 ```
 
-Each pipeline log entry also records the thread name, enabling verification that parallel agents ran on separate threads.
+### Data Flow
+
+- Agents call data functions via their tool handlers.
+- Data is read/written in memory for simulation; in production, this would be transactional DB access.
 
 ---
 
-## 5. API Layer Architecture
+## External Dependencies & Integration Points
 
-### 5.1 FastAPI + Async
+| Dependency         | Integration Point                                      | Purpose                                  |
+|--------------------|-------------------------------------------------------|------------------------------------------|
+| **OpenAI API**     | `agents/base.py` (`OpenAI` client)                    | LLM-powered agent reasoning and tool use |
+| **Requests**       | `smoke_test.py` (test client)                         | API testing                              |
+| **FastAPI**        | (Implied in `app.py`, not shown)                      | REST API framework                       |
+| **Pydantic**       | `models.py`                                           | Request/response validation              |
+| **(Optional)**     | Replace `data/*.py` with real DBs or external APIs    | Real-world data integration              |
 
+---
+
+## Security Considerations
+
+| Area                | Consideration                                                                                      |
+|---------------------|---------------------------------------------------------------------------------------------------|
+| **PII Handling**    | Agents are instructed (in system prompts) not to expose raw customer data; only summaries allowed.|
+| **LLM Guardrails**  | Prompts enforce medical/legal guardrails (no diagnosis, no dosage advice, refer to professionals).|
+| **API Auth**        | (Not shown) In production, endpoints should require authentication and authorization.              |
+| **Data Privacy**    | In-memory data is for simulation; real deployments must secure customer, prescription, and health data per HIPAA/PCI/etc.|
+| **External Calls**  | OpenAI API keys are loaded from environment; should be stored securely and rotated as needed.      |
+| **Logging**         | Run logs avoid storing sensitive data; only metadata and agent responses are logged.               |
+
+---
+
+## Scalability Path
+
+| Aspect            | Current State                 | Scalability Path                                                          |
+|-------------------|------------------------------|---------------------------------------------------------------------------|
+| **Agents**        | In-memory, per-process        | Stateless agent logic; can be horizontally scaled across processes/nodes.  |
+| **Data Layer**    | In-memory Python dicts/lists  | Swap for transactional DBs (Postgres, Redis, etc.) or external APIs.      |
+| **LLM Calls**     | Synchronous OpenAI API calls  | Use async APIs, batch requests, or dedicated LLM inference clusters.       |
+| **Thread Pool**   | Per-request, per-process      | Tune thread pool size, use process pools, or distributed task queues.      |
+| **API Layer**     | Single FastAPI instance       | Deploy behind a load balancer, scale out with multiple workers.            |
+| **Logging**       | Local filesystem logs         | Centralize logs (S3, ELK, etc.) for multi-node deployments.                |
+
+---
+
+## Error Handling Strategy
+
+| Layer               | Strategy                                                                                   |
+|---------------------|--------------------------------------------------------------------------------------------|
+| **API Layer**       | Validates requests with Pydantic; returns 4xx/5xx on error.                                |
+| **Orchestration**   | Catches agent and thread errors; logs failures per agent; continues pipeline if possible.   |
+| **Agent Layer**     | Each agent's tool handler returns structured error dicts (e.g., `{"error": ...}`); LLM is prompted to handle tool errors gracefully. |
+| **Data Layer**      | Functions return error dicts if data is missing or invalid (e.g., not found, insufficient stock). |
+| **External Calls**  | LLM API errors are caught; retries or fallback responses as needed.                        |
+| **Logging**         | All errors are logged in run logs for auditing and debugging.                              |
+
+### Example Error Propagation
+
+- If `reserve_stock` fails due to insufficient stock, agent returns `{"reserved": False, "error": ...}`.
+- Orchestrator aggregates agent errors and includes them in the final decision and customer message.
+- If an agent fails completely (e.g., LLM API error), the orchestrator logs the error and continues with available data.
+
+---
+
+## Appendix: Key Data Flows
+
+### Order Fulfillment
+
+1. **Order Placed** (`POST /orders`)
+2. **Orchestrator** launches agent pipeline:
+    - InventoryAgent: Checks/reserves store stock
+    - LogisticsAgent: Checks inbound shipments
+    - PharmacyAgent: Checks prescriptions, interactions
+    - ClinicAgent: Checks appointments, recommendations
+    - DistributionAgent: Checks DC stock
+    - ProviderAgent: Checks supplier pipeline
+    - Synthesis: Aggregates results, decides fulfillment
+3. **Run Logger** saves pipeline log and summary.
+4. **API** returns fulfillment plan and customer message.
+
+### Chat
+
+1. **Chat Started** (`POST /chat/start`)
+2. **Orchestrator** provides context from prior order.
+3. **Agents** answer follow-up questions, using tools as needed.
+4. **Chat history** is maintained per customer.
+
+---
+
+## Summary Table
+
+| Layer         | Technology         | Example Files/Modules         | Notes                                   |
+|---------------|-------------------|------------------------------|-----------------------------------------|
+| API           | FastAPI           | `app.py`                     | REST endpoints                          |
+| Orchestration | Python threading  | `orchestrator.py`            | Agent pipeline, thread pool             |
+| Agents        | OpenAI LLM + tools| `agents/*.py`, `base.py`     | Domain-specific reasoning               |
+| Data          | In-memory Python  | `data/*.py`                  | Simulated DBs, swappable                |
+| Models        | Pydantic          | `models.py`                  | API schemas                             |
+| Logging       | JSON, Markdown    | `run_logger.py`, `runs/`     | Pipeline run logs, index                |
+
+---
+
+## ASCII Sequence Example
+
+```text
+User → API → Orchestrator
+           ↓
+    ┌─────────────┬─────────────┬─────────────┬─────────────┐
+    │ Inventory   │ Logistics   │ Pharmacy    │ Clinic      │  (Parallel Phase)
+    └─────┬───────┴─────┬───────┴─────┬───────┴─────┬───────┘
+          ↓             ↓             ↓             ↓
+    ┌─────────────┬─────────────┐
+    │ Distribution│ Provider    │  (Parallel Phase)
+    └─────┬───────┴─────┬───────┘
+          ↓             ↓
+        Synthesis/Final Decision
+                ↓
+             Response
 ```
-Client Request
-    │
-    ▼
-FastAPI (async event loop)
-    │
-    ├─ async def place_order()
-    │      │
-    │      └─ run_in_executor(None, orchestrator.process_order)
-    │              │
-    │              └─ Orchestrator runs on default thread pool
-    │                  └─ Spawns agent workers on its own ThreadPoolExecutor
-    │
-    └─ Response returned to client
-```
-
-**Why `run_in_executor`?** The orchestrator and agents use the synchronous OpenAI client. Rather than blocking FastAPI's event loop, we offload the entire pipeline to a thread. FastAPI remains responsive to other requests (health checks, order lookups) while a pipeline runs.
-
-### 5.2 State Management
-
-| Store | Type | Scope | Contents |
-|-------|------|-------|----------|
-| `order_results` | `dict[str, dict]` | App lifetime | Processed order results by order_id |
-| `orchestrator` | `Orchestrator` | Singleton | Agent instances + thread pool |
-| `customer_agent` | `CustomerAgent` | Singleton | Conversation sessions |
-| `data/*` | Module globals | App lifetime | Simulated databases (mutable) |
-
-**Note:** All state is in-memory. A production implementation would use Redis or PostgreSQL.
 
 ---
 
-## 6. External Dependencies
-
-| Dependency | Purpose | Layer |
-|-----------|---------|-------|
-| **OpenAI API** | LLM inference for all agents | Agent |
-| **FastAPI** | HTTP framework | API |
-| **uvicorn** | ASGI server | API |
-| **Pydantic** | Request/response validation | API |
-| **python-dotenv** | Environment variable loading | Config |
-
-### 6.1 OpenAI Usage Pattern
-
-Each agent call = 1+ OpenAI `chat.completions.create()` calls:
-- 1 call if the LLM responds directly
-- 2+ calls if the LLM uses tools (tool call → execute → feed result → LLM responds)
-- Max 5 rounds per agent invocation
-
-The synthesis step uses `response_format={"type": "json_object"}` for structured output.
-
----
-
-## 7. Security Considerations
-
-| Concern | Mitigation |
-|---------|------------|
-| API key exposure | `.env` file, excluded from git via `.gitignore` |
-| Prompt injection via customer chat | System prompt with strict guardrails, post-processing keyword check |
-| Data leakage in chat | Guardrail G-05 prevents sharing raw records; system context marked as internal |
-| Unauthorized prescription access | Guardrail G-02 requires customer authentication before sharing Rx info |
-| Medical liability | Guardrails G-01/G-03 prevent medical advice; always redirect to pharmacist |
-
----
-
-## 8. Scalability Path
-
-This architecture is designed for demonstration. A production path would involve:
-
-| Current | Production |
-|---------|------------|
-| In-memory data stores | PostgreSQL + Redis cache |
-| In-memory order results | Event-sourced with message bus (Kafka/Redis Streams) |
-| Single-process thread pool | Distributed agent workers (Celery/Ray) |
-| Sync OpenAI client | Async OpenAI client with native asyncio |
-| In-memory conversation state | Redis-backed session store |
-| Single uvicorn process | Multi-worker deployment behind load balancer |
+## End of ARCHITECTURE.md

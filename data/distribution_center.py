@@ -5,6 +5,7 @@ DCs hold bulk stock and fulfill store replenishment orders.
 
 from __future__ import annotations
 from datetime import datetime, timedelta
+from functools import lru_cache
 
 _now = datetime.utcnow
 
@@ -56,8 +57,9 @@ def check_dc_stock(dc_id: str, sku: str) -> dict:
     }
 
 
+@lru_cache(maxsize=128)
 def check_all_dcs_for_sku(store_id: str, sku: str) -> list[dict]:
-    """Check all DCs serving a store for a specific SKU."""
+    """Check all DCs serving a store for a specific SKU. Cached for performance."""
     dc_ids = STORE_DC_MAP.get(store_id, [])
     return [check_dc_stock(dc_id, sku) for dc_id in dc_ids]
 
@@ -80,3 +82,4 @@ def allocate_from_dc(dc_id: str, sku: str, qty: int) -> dict:
         "estimated_ship_date": (_now() + timedelta(days=1)).isoformat(),
         "estimated_delivery": (_now() + timedelta(days=3)).isoformat(),
     }
+

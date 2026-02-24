@@ -5,6 +5,7 @@ Tracks prescriptions, refill schedules, and pharmacist consultations.
 
 from __future__ import annotations
 from datetime import datetime, timedelta
+import re
 
 _now = datetime.utcnow
 
@@ -74,14 +75,29 @@ PHARMACIST_ALERTS: dict[str, list[dict]] = {
     ],
 }
 
+def _validate_customer_id(customer_id: str) -> None:
+    if not isinstance(customer_id, str):
+        raise ValueError('Invalid customer_id: not a string')
+    # Example pattern: CUST- followed by digits
+    if not re.fullmatch(r"CUST-\\d{4,}", customer_id):
+        raise ValueError('Invalid customer_id format')
+
+def _validate_sku(new_sku: str) -> None:
+    if not isinstance(new_sku, str):
+        raise ValueError('Invalid SKU: not a string')
+    # Example pattern: SKU- followed by digits
+    if not re.fullmatch(r"SKU-\\d{4,}", new_sku):
+        raise ValueError('Invalid SKU format')
 
 def get_prescriptions(customer_id: str) -> list[dict]:
     """Get all active prescriptions for a customer."""
+    _validate_customer_id(customer_id)
     return [rx for rx in PRESCRIPTIONS.get(customer_id, []) if rx["status"] == "active"]
 
 
 def get_upcoming_refills(customer_id: str, within_days: int = 7) -> list[dict]:
     """Get prescriptions due for refill within N days."""
+    _validate_customer_id(customer_id)
     cutoff = (_now() + timedelta(days=within_days)).isoformat()
     results = []
     for rx in PRESCRIPTIONS.get(customer_id, []):
@@ -92,6 +108,7 @@ def get_upcoming_refills(customer_id: str, within_days: int = 7) -> list[dict]:
 
 def get_pharmacy_alerts(customer_id: str) -> list[dict]:
     """Get pharmacist alerts for a customer."""
+    _validate_customer_id(customer_id)
     return PHARMACIST_ALERTS.get(customer_id, [])
 
 
@@ -99,6 +116,8 @@ def check_drug_interaction(customer_id: str, new_sku: str) -> dict:
     """Check if a new OTC item might interact with existing prescriptions.
     Simplified simulation — in reality this would query a drug interaction DB.
     """
+    _validate_customer_id(customer_id)
+    _validate_sku(new_sku)
     OTC_INTERACTION_MAP = {
         "SKU-1001": {  # Ibuprofen
             "interacts_with": ["Lisinopril"],
@@ -123,3 +142,4 @@ def check_drug_interaction(customer_id: str, new_sku: str) -> dict:
                     "severity": interaction["severity"],
                 }
     return {"has_interaction": False}
+
