@@ -5,6 +5,7 @@ Tracks past orders, preferences, and loyalty info.
 
 from __future__ import annotations
 from datetime import datetime, timedelta
+import logging
 
 _now = datetime.utcnow
 
@@ -104,24 +105,42 @@ ORDER_HISTORY: dict[str, list[dict]] = {
 }
 
 
-def get_customer(customer_id: str) -> dict | None:
-    """Retrieve customer profile."""
+def audit_log(event: str, customer_id: str, requestor: str | None = None, extra: dict | None = None) -> None:
+    """Audit log for sensitive data access (HIPAA/FDA 21 CFR Part 11)."""
+    logger = logging.getLogger("audit")
+    payload = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "event": event,
+        "customer_id": customer_id,
+        "requestor": requestor,
+    }
+    if extra:
+        payload.update(extra)
+    logger.info(payload)
+
+
+def get_customer(customer_id: str, requestor: str | None = None) -> dict | None:
+    """Retrieve customer profile. Audit log access."""
+    audit_log(event="get_customer_profile", customer_id=customer_id, requestor=requestor)
     return CUSTOMERS.get(customer_id)
 
 
-def get_order_history(customer_id: str) -> list[dict]:
-    """Get full order history for a customer."""
+def get_order_history(customer_id: str, requestor: str | None = None) -> list[dict]:
+    """Get full order history for a customer. Audit log access."""
+    audit_log(event="get_order_history", customer_id=customer_id, requestor=requestor)
     return ORDER_HISTORY.get(customer_id, [])
 
 
-def get_recent_orders(customer_id: str, limit: int = 5) -> list[dict]:
-    """Get most recent orders for a customer."""
+def get_recent_orders(customer_id: str, limit: int = 5, requestor: str | None = None) -> list[dict]:
+    """Get most recent orders for a customer. Audit log access."""
+    audit_log(event="get_recent_orders", customer_id=customer_id, requestor=requestor, extra={"limit": limit})
     history = ORDER_HISTORY.get(customer_id, [])
     return sorted(history, key=lambda x: x["date"], reverse=True)[:limit]
 
 
-def get_frequently_purchased(customer_id: str) -> list[dict]:
-    """Determine frequently purchased items from history."""
+def get_frequently_purchased(customer_id: str, requestor: str | None = None) -> list[dict]:
+    """Determine frequently purchased items from history. Audit log access."""
+    audit_log(event="get_frequently_purchased", customer_id=customer_id, requestor=requestor)
     sku_counts: dict[str, dict] = {}
     for order in ORDER_HISTORY.get(customer_id, []):
         for item in order["items"]:
@@ -131,3 +150,4 @@ def get_frequently_purchased(customer_id: str) -> list[dict]:
             sku_counts[sku]["total_qty"] += item["qty"]
             sku_counts[sku]["order_count"] += 1
     return sorted(sku_counts.values(), key=lambda x: x["order_count"], reverse=True)
+

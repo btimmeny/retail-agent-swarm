@@ -1,4 +1,4 @@
-"""Logistics Agent — tracks inbound shipments and delivery ETAs."""
+"""Logistics Agent  tracks inbound shipments and delivery ETAs."""
 
 from __future__ import annotations
 
@@ -22,11 +22,19 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_inbound_for_store",
-            "description": "Get all inbound shipments heading to a specific store",
+            "description": (
+                "Get inbound shipments heading to a specific store. "
+                "Supports optional pagination (limit, offset) and filtering by status. "
+                "If limit/offset are not provided, returns all results. "
+                "Status filter allows filtering by shipment status (e.g., 'in_transit', 'delivered')."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "store_id": {"type": "string", "description": "The store identifier"},
+                    "limit": {"type": "integer", "description": "Maximum number of results to return (optional)"},
+                    "offset": {"type": "integer", "description": "Number of results to skip before returning (optional)"},
+                    "status": {"type": "string", "description": "Filter shipments by status (optional)"},
                 },
                 "required": ["store_id"],
             },
@@ -36,12 +44,20 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_inbound_for_sku",
-            "description": "Find inbound shipments containing a specific SKU for a store",
+            "description": (
+                "Find inbound shipments containing a specific SKU for a store. "
+                "Supports optional pagination (limit, offset) and filtering by status. "
+                "If limit/offset are not provided, returns all results. "
+                "Status filter allows filtering by shipment status (e.g., 'in_transit', 'delivered')."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "store_id": {"type": "string", "description": "The store identifier"},
                     "sku": {"type": "string", "description": "The SKU to search for"},
+                    "limit": {"type": "integer", "description": "Maximum number of results to return (optional)"},
+                    "offset": {"type": "integer", "description": "Number of results to skip before returning (optional)"},
+                    "status": {"type": "string", "description": "Filter shipments by status (optional)"},
                 },
                 "required": ["store_id", "sku"],
             },
@@ -51,12 +67,17 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_next_arrival_for_sku",
-            "description": "Get the soonest arriving shipment containing a specific SKU",
+            "description": (
+                "Get the soonest arriving shipment containing a specific SKU. "
+                "Supports optional filtering by status. "
+                "Status filter allows filtering by shipment status (e.g., 'in_transit', 'delivered')."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "store_id": {"type": "string", "description": "The store identifier"},
                     "sku": {"type": "string", "description": "The SKU to search for"},
+                    "status": {"type": "string", "description": "Filter shipments by status (optional)"},
                 },
                 "required": ["store_id", "sku"],
             },
@@ -78,3 +99,4 @@ def create() -> Agent:
         tools=TOOLS,
         tool_handlers=TOOL_HANDLERS,
     )
+

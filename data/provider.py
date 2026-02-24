@@ -5,6 +5,7 @@ Tracks supplier relationships, lead times, and pending purchase orders.
 
 from __future__ import annotations
 from datetime import datetime, timedelta
+import re
 
 _now = datetime.utcnow
 
@@ -67,8 +68,22 @@ PENDING_PURCHASE_ORDERS: list[dict] = [
 ]
 
 
+def _validate_sku(sku: str) -> None:
+    if not isinstance(sku, str) or not sku.startswith('SKU-') or not re.match(r'^SKU-\d+$', sku):
+        raise ValueError('Invalid SKU format')
+
+def _validate_qty(qty: int) -> None:
+    if not isinstance(qty, int) or qty <= 0:
+        raise ValueError('Quantity must be a positive integer')
+
+def _validate_destination_dc(destination_dc: str) -> None:
+    if not isinstance(destination_dc, str) or not destination_dc.startswith('DC-') or not re.match(r'^DC-[A-Z]+-\d+$', destination_dc):
+        raise ValueError('Invalid destination_dc format')
+
+
 def get_supplier_for_sku(sku: str) -> dict | None:
     """Find the supplier responsible for a given SKU."""
+    _validate_sku(sku)
     for sup_id, sup in SUPPLIERS.items():
         if sku in sup["skus"]:
             return {"supplier_id": sup_id, **sup}
@@ -77,11 +92,20 @@ def get_supplier_for_sku(sku: str) -> dict | None:
 
 def get_pending_orders_for_sku(sku: str) -> list[dict]:
     """Get all pending purchase orders for a SKU."""
+    _validate_sku(sku)
     return [po for po in PENDING_PURCHASE_ORDERS if po["sku"] == sku]
 
 
 def create_restock_order(sku: str, qty: int, destination_dc: str) -> dict:
     """Create a new purchase order with the appropriate supplier."""
+    # Input validation and sanitization
+    try:
+        _validate_sku(sku)
+        _validate_qty(qty)
+        _validate_destination_dc(destination_dc)
+    except ValueError as e:
+        return {"created": False, "error": str(e)}
+
     supplier = get_supplier_for_sku(sku)
     if not supplier:
         return {"created": False, "error": f"No supplier found for {sku}"}
@@ -100,3 +124,4 @@ def create_restock_order(sku: str, qty: int, destination_dc: str) -> dict:
     }
     PENDING_PURCHASE_ORDERS.append(po)
     return {"created": True, **po}
+
