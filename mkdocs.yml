@@ -1,0 +1,43 @@
+site_name: Retail Agent Swarm Wiki
+site_description: Documentation for the Retail Agent Swarm — a multi-agent retail pharmacy order pipeline
+site_author: Brian Timmeny
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: teal
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: teal
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - content.code.copy
+    - toc.follow
+
+nav:
+  - Home: index.md
+  - Specification: SPEC.md
+  - Architecture: ARCHITECTURE.md
+  - Design: DESIGN.md
+
+markdown_extensions:
+  - tables
+  - fenced_code
+  - codehilite
+  - toc:
+      permalink: true
+  - admonition
+  - attr_list
+
+docs_dir: docs

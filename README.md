@@ -2,6 +2,15 @@
 
 A multi-agent system that simulates a full retail pharmacy order pipeline — from customer order placement through inventory, logistics, distribution, supplier management, pharmacy review, and clinic integration.
 
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [Specification](docs/SPEC.md) | Requirements, data models, API contracts, acceptance criteria |
+| [Architecture](docs/ARCHITECTURE.md) | System components, parallel execution, thread pool design |
+| [Design](docs/DESIGN.md) | Design decisions, agent patterns, guardrail rationale, data flow |
+| **Wiki Site** | Run `mkdocs serve` to browse docs locally at http://localhost:8001 |
+
 ## Architecture
 
 ```
