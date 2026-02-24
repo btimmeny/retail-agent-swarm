@@ -23,6 +23,7 @@ from fastapi import FastAPI, HTTPException
 from models import OrderRequest, ChatMessage, ChatStartRequest
 from agents.orchestrator import Orchestrator
 from agents.customer_agent import CustomerAgent
+from run_logger import save_run
 
 load_dotenv()
 
@@ -86,6 +87,10 @@ async def place_order(req: OrderRequest):
     )
     order_id = result["order_id"]
     order_results[order_id] = result
+
+    # Auto-save detailed run log
+    log_path = save_run(result)
+    logging.getLogger(__name__).info("Run log saved: %s", log_path)
 
     return {
         "order_id": order_id,
