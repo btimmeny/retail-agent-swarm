@@ -1,0 +1,61 @@
+[project]
+name = "retail-agent-swarm"
+version = "1.0.0"
+description = "Multi-agent retail order processing with pharmacy and clinic integration"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+
+[tool.ruff]
+target-version = "py310"
+line-length = 127
+src = ["."]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "S",    # flake8-bandit (security)
+    "T20",  # flake8-print
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific rules
+]
+ignore = [
+    "S101",   # assert used (OK in tests)
+    "S104",   # binding to all interfaces (OK for dev server)
+    "T201",   # print found (we use logging, but some scripts use print)
+    "E501",   # line too long (handled by formatter)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S106"]
+"smoke_test.py" = ["S101", "T201"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+check_untyped_defs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+[tool.black]
+line-length = 127
+target-version = ["py310"]

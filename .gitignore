@@ -1,6 +1,28 @@
+# Python
 .venv/
 __pycache__/
 *.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Environment
 .env
+
+# IDE
 .DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Build output
 site/
+
+# Test / lint caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+reports/

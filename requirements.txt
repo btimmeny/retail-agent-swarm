@@ -1,6 +1,7 @@
-fastapi
-uvicorn[standard]
-openai
-pydantic
-requests
-python-dotenv
+# Core dependencies (pinned for reproducible builds)
+fastapi==0.132.0
+uvicorn[standard]==0.41.0
+openai==2.22.0
+pydantic==2.12.5
+requests==2.32.5
+python-dotenv==1.2.1
